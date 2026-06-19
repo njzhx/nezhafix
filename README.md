@@ -22,6 +22,15 @@ curl -fsSL https://raw.githubusercontent.com/njzhx/nezhafix/main/nezha_audit_fix
 curl -fsSL https://raw.githubusercontent.com/njzhx/nezhafix/main/nezha_audit_fix.sh | sudo bash -s -- --upgrade-all --cn
 ```
 
+如果旧版 `0.x` 探针升级时报缺少连接参数，请先到新版面板的“服务器”页面复制探针安装命令，或显式提供新版连接参数：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/njzhx/nezhafix/main/nezha_audit_fix.sh | \
+sudo env NZ_SERVER=你的面板通信地址:端口 NZ_CLIENT_SECRET=连接密钥 NZ_TLS=false bash -s -- --upgrade-agent
+```
+
+说明：旧版 `0.x` 探针常用 `-s/-p` 参数式 systemd 服务，新版 `2.x` 探针使用 `config.yml` 和用户连接密钥。脚本不会在缺少新版连接密钥时强行迁移，以免探针重复注册或断连。
+
 ## 功能
 
 - 检查 Dashboard 是否低于已知安全修复版本 `2.0.13`。

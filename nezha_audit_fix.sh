@@ -102,6 +102,39 @@ find_agent_configs() {
     awk '!seen[$0]++'
 }
 
+find_agent_service_files() {
+  find /etc/systemd/system /etc/init.d -maxdepth 2 -type f 2>/dev/null |
+    grep -Ei 'nezha.*agent|agent.*nezha' |
+    awk '!seen[$0]++'
+}
+
+has_v2_agent_config() {
+  local cfgs f
+  cfgs="$(find_agent_configs || true)"
+  [ -n "$cfgs" ] || return 1
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    if grep -Eq '^[[:space:]]*server:[[:space:]]*.+' "$f" &&
+       grep -Eq '^[[:space:]]*client_secret:[[:space:]]*.+' "$f"; then
+      return 0
+    fi
+  done <<EOF
+$cfgs
+EOF
+  return 1
+}
+
+has_agent_env_inputs() {
+  [ -n "${NZ_SERVER:-}" ] && [ -n "${NZ_CLIENT_SECRET:-}" ]
+}
+
+looks_like_v0_agent_service() {
+  local services
+  services="$(find_agent_service_files || true)"
+  [ -n "$services" ] || return 1
+  printf '%s\n' "$services" | xargs -r grep -E 'nezha-agent .*(-s|--server).*(-p|--password|--secret)' >/dev/null 2>&1
+}
+
 detect_dashboard_version() {
   local ver=""
   if [ -x "$NZ_DASHBOARD_PATH/app" ]; then
@@ -275,8 +308,18 @@ upgrade_dashboard() {
 }
 
 upgrade_agent() {
-  info "正在调用官方脚本升级探针..."
+  info "正在准备升级探针..."
   local script="/tmp/nezha-agent.sh"
+  if ! has_v2_agent_config && ! has_agent_env_inputs; then
+    warn "未发现新版探针 config.yml，也未提供 NZ_SERVER/NZ_CLIENT_SECRET，已跳过探针升级。"
+    if looks_like_v0_agent_service; then
+      warn "当前机器看起来是旧版 0.x 探针参数式安装。0.x 到 2.x 不能在缺少新版连接密钥时无损自动迁移。"
+    fi
+    warn "请到新版面板的服务器页面复制探针安装命令，或按下面格式提供参数后重试:"
+    warn "curl -fsSL https://raw.githubusercontent.com/njzhx/nezhafix/main/nezha_audit_fix.sh | sudo env NZ_SERVER=你的面板通信地址:端口 NZ_CLIENT_SECRET=连接密钥 NZ_TLS=false bash -s -- --upgrade-agent"
+    return 0
+  fi
+  info "正在调用官方脚本升级探针..."
   if [ -n "$CN" ]; then
     download_official_script "https://gitee.com/naibahq/scripts/raw/main/agent/install.sh" "$script"
     CN=true bash "$script"
