@@ -19,16 +19,16 @@ PLAIN='\033[0m'
 
 usage() {
   cat <<'USAGE'
-Usage: sudo bash nezha_audit_fix.sh [options]
+用法: sudo bash nezha_audit_fix.sh [选项]
 
-Options:
-  --check-only           Only audit, default
-  --upgrade-dashboard    Upgrade Nezha Dashboard after audit
-  --upgrade-agent        Upgrade Nezha Agent after audit
-  --upgrade-all          Upgrade both Dashboard and Agent after audit
-  --cn                   Prefer official China mirror/source
-  --no-poc               Skip localhost path-traversal PoC checks
-  --help                 Show this help
+选项:
+  --check-only           仅自查，默认行为
+  --upgrade-dashboard    自查后升级哪吒面板
+  --upgrade-agent        自查后升级哪吒探针
+  --upgrade-all          自查后升级哪吒面板和探针
+  --cn                   优先使用官方国内镜像/源
+  --no-poc               跳过本机路径穿越 PoC 检查
+  --help                 显示帮助
 USAGE
 }
 
@@ -41,20 +41,20 @@ while [ "$#" -gt 0 ]; do
     --cn) CN=true ;;
     --no-poc) CHECK_POC=0 ;;
     --help|-h) usage; exit 0 ;;
-    *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
+    *) echo "未知选项: $1" >&2; usage; exit 2 ;;
   esac
   shift
 done
 
 log() { printf "%b\n" "$*" | tee -a "$REPORT"; }
-info() { log "${BLUE}[INFO]${PLAIN} $*"; }
-ok() { log "${GREEN}[OK]${PLAIN} $*"; }
-warn() { log "${YELLOW}[WARN]${PLAIN} $*"; }
-bad() { log "${RED}[HIGH]${PLAIN} $*"; }
+info() { log "${BLUE}[信息]${PLAIN} $*"; }
+ok() { log "${GREEN}[正常]${PLAIN} $*"; }
+warn() { log "${YELLOW}[警告]${PLAIN} $*"; }
+bad() { log "${RED}[高危]${PLAIN} $*"; }
 
 need_root() {
   if [ "$(id -u)" -ne 0 ]; then
-    bad "Please run as root, for example: sudo bash nezha_audit_fix.sh"
+    bad "请使用 root 运行，例如: sudo bash nezha_audit_fix.sh"
     exit 1
   fi
 }
@@ -123,7 +123,7 @@ detect_agent_version() {
 }
 
 audit_versions() {
-  info "Checking versions..."
+  info "正在检查版本..."
   local dash_ver latest_dash agent_ver latest_agent
   dash_ver="$(detect_dashboard_version)"
   latest_dash="$(get_latest_release nezhahq/nezha || true)"
@@ -132,34 +132,34 @@ audit_versions() {
 
   if [ -n "$dash_ver" ]; then
     if version_ge "$dash_ver" "$MIN_SAFE_DASHBOARD"; then
-      ok "Dashboard version $dash_ver is not below fixed version $MIN_SAFE_DASHBOARD."
+      ok "面板当前版本 $dash_ver，不低于安全修复版本 $MIN_SAFE_DASHBOARD。"
     else
-      bad "Dashboard version $dash_ver is below fixed version $MIN_SAFE_DASHBOARD. Public vulnerabilities may apply."
+      bad "面板当前版本 $dash_ver 低于安全修复版本 $MIN_SAFE_DASHBOARD，可能受已公开漏洞影响。"
     fi
   else
-    warn "Could not detect Dashboard version. This is common with Docker latest tags or custom installs."
+    warn "未能识别面板版本；Docker latest 标签或非标准安装常见此情况。"
   fi
 
-  [ -n "$latest_dash" ] && info "Latest Dashboard release: $latest_dash"
-  [ -n "$agent_ver" ] && info "Agent version: $agent_ver" || warn "Could not detect Agent version."
-  [ -n "$latest_agent" ] && info "Latest Agent release: $latest_agent"
+  [ -n "$latest_dash" ] && info "面板官方最新版本: $latest_dash"
+  [ -n "$agent_ver" ] && info "探针当前版本: $agent_ver" || warn "未能识别探针版本。"
+  [ -n "$latest_agent" ] && info "探针官方最新版本: $latest_agent"
 }
 
 audit_poc() {
-  [ "$CHECK_POC" -eq 1 ] || { warn "PoC check skipped."; return; }
+  [ "$CHECK_POC" -eq 1 ] || { warn "已跳过 PoC 检查。"; return; }
   local cfg port body code tmp
   cfg="$(find_dashboard_config || true)"
-  [ -n "$cfg" ] || { warn "Dashboard config.yaml was not found. Local PoC check skipped."; return; }
+  [ -n "$cfg" ] || { warn "未找到面板 config.yaml，已跳过本机 PoC 检查。"; return; }
   port="$(extract_yaml_value listen_port "$cfg" || true)"
   [ -n "$port" ] || port=8008
   tmp="$(mktemp)"
-  info "Checking localhost path traversal on 127.0.0.1:$port..."
+  info "正在通过 127.0.0.1:$port 检查本机路径穿越漏洞..."
 
   for path in "/dashboard../data/config.yaml" "/dashboard%2e%2e/data/config.yaml" "/dashboard..%2fdata/config.yaml"; do
     code="$(curl -sS --path-as-is --max-time 8 -o "$tmp" -w '%{http_code}' "http://127.0.0.1:${port}${path}" 2>/dev/null || true)"
     body="$(head -c 4096 "$tmp" 2>/dev/null || true)"
     if [ "$code" = "200" ] && printf '%s' "$body" | grep -Eq 'jwt_secret_key|agent_secret_key|oauth2|listen_port'; then
-      bad "VULNERABLE: GET $path returned content that looks like config.yaml."
+      bad "存在漏洞: GET $path 返回了疑似 config.yaml 内容。"
       rm -f "$tmp"
       return
     fi
@@ -167,45 +167,45 @@ audit_poc() {
 
   code="$(curl -sS --path-as-is --max-time 8 -o "$tmp" -w '%{http_code}' "http://127.0.0.1:${port}/dashboard../data/sqlite.db" 2>/dev/null || true)"
   if [ "$code" = "200" ] && head -c 16 "$tmp" 2>/dev/null | grep -q 'SQLite format'; then
-    bad "VULNERABLE: /dashboard../data/sqlite.db returned a SQLite database."
+    bad "存在漏洞: /dashboard../data/sqlite.db 返回了 SQLite 数据库。"
   else
-    ok "Local PoC did not read config.yaml or sqlite.db."
+    ok "本机 PoC 未读到 config.yaml 或 sqlite.db。"
   fi
   rm -f "$tmp"
 }
 
 audit_logs() {
-  info "Scanning common web logs for exploit traces..."
+  info "正在扫描常见 Web 日志中的漏洞利用痕迹..."
   local files hits
   files="$(find /var/log /opt/nezha -maxdepth 4 -type f 2>/dev/null |
     grep -Ei 'access|nginx|caddy|apache|http|nezha|dashboard' || true)"
-  [ -n "$files" ] || { warn "No common web log files found."; return; }
+  [ -n "$files" ] || { warn "未发现常见 Web 日志文件。"; return; }
   hits="$(printf '%s\n' "$files" | xargs -r grep -IEn 'dashboard(\.\.|%2e%2e|%252e|\.%2e|%2f)|data/(config\.ya?ml|sqlite\.db)' 2>/dev/null | head -n 30 || true)"
   if [ -n "$hits" ]; then
-    bad "Possible exploit scans or hits found in logs:"
+    bad "日志中发现疑似漏洞扫描或利用痕迹:"
     printf '%s\n' "$hits" | tee -a "$REPORT"
   else
-    ok "No known PoC patterns found in common logs."
+    ok "常见日志中未发现已知 PoC 特征。"
   fi
 }
 
 audit_processes() {
-  info "Checking suspicious processes..."
+  info "正在检查可疑进程..."
   local hits
   hits="$(ps axww -o pid,user,etime,command 2>/dev/null |
     grep -Eiv 'grep|nezha_audit_fix' |
     grep -Ei 'xmrig|kinsing|kdevtmpfsi|crypto|miner|/tmp/|/dev/shm/|base64|curl .*\|.*sh|wget .*\|.*sh|nc -e|bash -i' |
     head -n 30 || true)"
   if [ -n "$hits" ]; then
-    warn "Suspicious processes found. Review manually:"
+    warn "发现可疑进程，请人工确认:"
     printf '%s\n' "$hits" | tee -a "$REPORT"
   else
-    ok "No common miner, reverse shell, or temporary-directory process patterns found."
+    ok "未发现常见挖矿、反弹 shell 或临时目录运行进程特征。"
   fi
 }
 
 audit_persistence() {
-  info "Checking cron and systemd persistence..."
+  info "正在检查 cron 和 systemd 持久化项..."
   local tmp hits
   tmp="$(mktemp)"
   {
@@ -214,33 +214,33 @@ audit_persistence() {
   } > "$tmp"
   hits="$(grep -Ein 'curl|wget|/tmp/|/dev/shm|base64|bash -c|sh -c|nc |socat|python -c|perl -e|xmrig|miner' "$tmp" | head -n 40 || true)"
   if [ -n "$hits" ]; then
-    warn "Suspicious cron or service snippets found. Review manually:"
+    warn "发现可疑定时任务或服务片段，请人工确认:"
     printf '%s\n' "$hits" | tee -a "$REPORT"
   else
-    ok "No common suspicious persistence patterns found."
+    ok "未发现常见可疑持久化特征。"
   fi
   rm -f "$tmp"
 }
 
 audit_nezha_data() {
-  info "Checking Nezha config and database risk indicators..."
+  info "正在检查哪吒配置和数据库风险项..."
   local cfg db dump agent_cfgs
   cfg="$(find_dashboard_config || true)"
   if [ -n "$cfg" ]; then
-    ok "Dashboard config file: $cfg"
+    ok "面板配置文件: $cfg"
     stat "$cfg" 2>/dev/null | tee -a "$REPORT" >/dev/null || true
     db="$(dirname "$cfg")/sqlite.db"
     if [ -f "$db" ]; then
-      info "Dashboard database: $db"
+      info "面板数据库: $db"
       if have sqlite3; then
         dump="$(sqlite3 "$db" .dump 2>/dev/null | grep -Ei 'curl|wget|bash|sh -c|powershell|base64|/tmp/|/dev/shm|nc |socat|xmrig|miner' | head -n 40 || true)"
-        [ -n "$dump" ] && { warn "Possible command/download payloads found in database:"; printf '%s\n' "$dump" | tee -a "$REPORT"; } || ok "No common malicious command patterns found in database dump."
+        [ -n "$dump" ] && { warn "数据库中发现疑似命令执行/下载器片段:"; printf '%s\n' "$dump" | tee -a "$REPORT"; } || ok "数据库 dump 中未发现常见恶意命令特征。"
       else
-        warn "sqlite3 is not installed. Dashboard database content scan skipped."
+        warn "未安装 sqlite3，已跳过面板数据库内容扫描。"
       fi
     fi
   else
-    warn "Dashboard config file was not found."
+    warn "未找到面板配置文件。"
   fi
 
   agent_cfgs="$(find_agent_configs || true)"
@@ -248,9 +248,9 @@ audit_nezha_data() {
     printf '%s\n' "$agent_cfgs" | while read -r f; do
       [ -f "$f" ] || continue
       if grep -Eq '^[[:space:]]*disable_command_execute:[[:space:]]*false' "$f"; then
-        warn "Agent remote command execution is enabled: $f. If Dashboard was compromised, review Dashboard tasks and consider disabling it temporarily."
+        warn "探针已开启远程命令执行: $f。如果面板曾被接管，请检查面板任务记录，并考虑临时关闭。"
       else
-        ok "Agent remote command execution is not explicitly enabled or is disabled: $f"
+        ok "探针未显式开启远程命令执行，或已禁用: $f"
       fi
     done
   fi
@@ -263,7 +263,7 @@ download_official_script() {
 }
 
 upgrade_dashboard() {
-  info "Calling official script to upgrade Dashboard..."
+  info "正在调用官方脚本升级面板..."
   local script="/tmp/nezha.sh"
   if [ -n "$CN" ]; then
     download_official_script "https://gitee.com/naibahq/scripts/raw/main/install.sh" "$script"
@@ -275,7 +275,7 @@ upgrade_dashboard() {
 }
 
 upgrade_agent() {
-  info "Calling official script to upgrade Agent..."
+  info "正在调用官方脚本升级探针..."
   local script="/tmp/nezha-agent.sh"
   if [ -n "$CN" ]; then
     download_official_script "https://gitee.com/naibahq/scripts/raw/main/agent/install.sh" "$script"
@@ -289,8 +289,8 @@ upgrade_agent() {
 main() {
   need_root
   touch "$REPORT"
-  info "Report file: $REPORT"
-  info "Starting Nezha Dashboard/Agent audit."
+  info "报告文件: $REPORT"
+  info "开始哪吒面板/探针自查。"
   audit_versions
   audit_poc
   audit_logs
@@ -305,8 +305,8 @@ main() {
     upgrade_agent
   fi
 
-  info "Audit completed. Report saved to $REPORT"
-  warn "If config.yaml/sqlite.db was exposed or logs show exploit hits, rotate passwords, JWT secret, API tokens, OAuth/notification/DDNS secrets, and Agent connection secrets after upgrading."
+  info "自查完成。报告已保存到 $REPORT"
+  warn "如果 config.yaml/sqlite.db 曾暴露，或日志中存在漏洞利用痕迹，请在升级后轮换密码、JWT 密钥、API Token、OAuth/通知/DDNS 密钥和探针连接密钥。"
 }
 
 main "$@"
